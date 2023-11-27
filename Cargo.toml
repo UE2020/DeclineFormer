@@ -1,0 +1,13 @@
+[package]
+name = "seq2seq"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.75"
+rand = "0.8.5"
+tch = { version = "0.13.0", features=["download-libtorch"] }
+tensorboard-rs = "0.5.9"
+tokenizers = "0.15.0"
