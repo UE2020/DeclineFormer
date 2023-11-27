@@ -1,2 +1,4 @@
 /target
 *.pt
+tokenizer.json
+/logdir
