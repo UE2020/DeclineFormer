@@ -108,7 +108,7 @@ fn main() -> Result<(), anyhow::Error> {
                 t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.0)
             };
             let mut steps = 0;
-            for epoch in 0.. {
+            for epoch in 1.. {
                 pairs.shuffle(&mut rand::thread_rng());
                 for batch in pairs.chunks(BATCH_SIZE) {
                     let mut src_batch = vec![];
