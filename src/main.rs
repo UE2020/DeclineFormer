@@ -1,13 +1,13 @@
 pub mod token;
 use anyhow::bail;
 use rand::seq::SliceRandom;
-use tokenizers::{TokenizerImpl, Model, Normalizer, PreTokenizer, PostProcessor, Decoder};
 use std::fs::{read_to_string, remove_dir_all};
 use tch::{
     nn::{self, OptimizerConfig, VarStore},
-    CModule, Device, IValue, Reduction, Tensor, TrainableCModule, Kind, IndexOp,
+    CModule, Device, IValue, IndexOp, Kind, Reduction, Tensor, TrainableCModule,
 };
 use tensorboard_rs as tensorboard;
+use tokenizers::{Decoder, Model, Normalizer, PostProcessor, PreTokenizer, TokenizerImpl};
 
 pub fn ivalue_to_tensor(ivalue: &IValue) -> Result<Tensor, anyhow::Error> {
     match ivalue {
@@ -32,7 +32,13 @@ fn tensor_transform(tokens: &[i64]) -> Tensor {
     )
 }
 
-pub fn greedy_decode<M, N, PT, PP, D>(input: &str, net: &TrainableCModule, masker: &CModule, tokenizer: &TokenizerImpl<M, N, PT, PP, D>, device: Device) -> Result<String, anyhow::Error>
+pub fn greedy_decode<M, N, PT, PP, D>(
+    input: &str,
+    net: &TrainableCModule,
+    masker: &CModule,
+    tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
+    device: Device,
+) -> Result<String, anyhow::Error>
 where
     M: Model,
     N: Normalizer,
@@ -40,13 +46,17 @@ where
     PP: PostProcessor,
     D: Decoder,
 {
-    let src = tensor_transform(&tokenizer
-        .encode(input, true)
-        .unwrap()
-        .get_ids()
-        .into_iter()
-        .map(|id| *id as i64)
-        .collect::<Vec<_>>()).view((-1, 1)).to_device(device);
+    let src = tensor_transform(
+        &tokenizer
+            .encode(input, true)
+            .unwrap()
+            .get_ids()
+            .into_iter()
+            .map(|id| *id as i64)
+            .collect::<Vec<_>>(),
+    )
+    .view((-1, 1))
+    .to_device(device);
     let num_tokens = src.size()[0];
     let src_mask = Tensor::zeros(&[num_tokens, num_tokens], (Kind::Bool, device));
     let max_len = num_tokens + 5;
@@ -56,12 +66,20 @@ where
     let mut tokens = vec![start_symbol as u32];
     for _ in 0..(max_len - 1) {
         let memory = memory.to_device(device);
-        let tgt_mask = masker.method_ts("generate_square_subsequent_mask", &[ys.shallow_clone()])?.to_kind(Kind::Bool).to_device(device);
-        let out = net.method_ts("decode", &[ys.shallow_clone(), memory, tgt_mask])?.transpose(0, 1);
+        let tgt_mask = masker
+            .method_ts("generate_square_subsequent_mask", &[ys.shallow_clone()])?
+            .to_kind(Kind::Bool)
+            .to_device(device);
+        let out = net
+            .method_ts("decode", &[ys.shallow_clone(), memory, tgt_mask])?
+            .transpose(0, 1);
         let prob = net.method_ts("out_linear", &[out.i((.., -1))])?;
         let (_, next_word) = prob.max_dim(1, false);
         let token = i64::try_from(next_word)?;
-        ys = Tensor::cat(&[ys, Tensor::full(&[1, 1], token, (Kind::Int64, device))], 0);
+        ys = Tensor::cat(
+            &[ys, Tensor::full(&[1, 1], token, (Kind::Int64, device))],
+            0,
+        );
         tokens.push(token as u32);
         if token == EOS_IDX {
             break;
@@ -98,7 +116,7 @@ fn main() -> Result<(), anyhow::Error> {
                 .build(&vs, 0.0001)?;
             let file = read_to_string(&args[4])?;
             let mut pairs: Vec<[&str; 2]> = file
-                .split('\n')
+                .lines()
                 .map(|l| {
                     let split: Vec<_> = l.split('\t').collect();
                     [split[0].trim(), split[1].trim()]
@@ -138,10 +156,13 @@ fn main() -> Result<(), anyhow::Error> {
                     let tgt = Tensor::pad_sequence::<Tensor>(&tgt_batch, false, PAD_IDX as f64)
                         .to_device(device);
                     let tgt_input = tgt.narrow(0, 0, tgt.size()[0] - 1);
-                    let masks = masker.method_is("create_mask", &[
-                        IValue::Tensor(src.shallow_clone()),
-                        IValue::Tensor(tgt_input.shallow_clone()),
-                    ])?;
+                    let masks = masker.method_is(
+                        "create_mask",
+                        &[
+                            IValue::Tensor(src.shallow_clone()),
+                            IValue::Tensor(tgt_input.shallow_clone()),
+                        ],
+                    )?;
                     let (src_mask, tgt_mask, src_padding_mask, tgt_padding_mask) = match masks {
                         IValue::Tuple(masks) => (
                             ivalue_to_tensor(&masks[0])?,
@@ -151,15 +172,18 @@ fn main() -> Result<(), anyhow::Error> {
                         ),
                         _ => bail!("Invalid structure from masker"),
                     };
-                    let logits = net.method_ts("forward", &[
-                        src,
-                        tgt_input,
-                        src_mask,
-                        tgt_mask,
-                        src_padding_mask.shallow_clone(),
-                        tgt_padding_mask,
-                        src_padding_mask,
-                    ])?;
+                    let logits = net.method_ts(
+                        "forward",
+                        &[
+                            src,
+                            tgt_input,
+                            src_mask,
+                            tgt_mask,
+                            src_padding_mask.shallow_clone(),
+                            tgt_padding_mask,
+                            src_padding_mask,
+                        ],
+                    )?;
                     opt.zero_grad();
                     let tgt_out = &tgt.narrow(0, 1, tgt.size()[0] - 1);
                     let logits_shape = logits.size();
@@ -186,7 +210,10 @@ fn main() -> Result<(), anyhow::Error> {
             let mut net = TrainableCModule::load(&args[2], vs.root())?;
             net.set_eval();
             let tokenizer = token::load().unwrap();
-            println!("output: {}", greedy_decode(&args[3], &net, &masker, &tokenizer, device)?);
+            println!(
+                "output: {}",
+                greedy_decode(&args[3], &net, &masker, &tokenizer, device)?
+            );
         }
         _ => bail!("Invalid arguments"),
     }
