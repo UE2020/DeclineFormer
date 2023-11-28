@@ -9,7 +9,6 @@ UNK_IDX = 0
 PAD_IDX = 1
 BOS_IDX = 2
 EOS_IDX = 3
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class PositionalEncoding(nn.Module):
     def __init__(self,
@@ -90,7 +89,7 @@ class Seq2SeqTransformer(nn.Module):
         return self.generator(i)
 
 def generate_square_subsequent_mask(sz):
-    mask = (torch.triu(torch.ones((sz, sz), device=DEVICE)) == 1).transpose(0, 1)
+    mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
     mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
     return mask
 
@@ -100,7 +99,7 @@ def create_mask(src, tgt):
     tgt_seq_len = tgt.shape[0]
 
     tgt_mask = generate_square_subsequent_mask(tgt_seq_len)
-    src_mask = torch.zeros((src_seq_len, src_seq_len),device=DEVICE).type(torch.bool)
+    src_mask = torch.zeros((src_seq_len, src_seq_len)).type(torch.bool)
 
     src_padding_mask = (src == PAD_IDX).transpose(0, 1)
     tgt_padding_mask = (tgt == PAD_IDX).transpose(0, 1)
@@ -111,7 +110,7 @@ class Masker(nn.Module):
         super(Masker, self).__init__()
 
     def generate_square_subsequent_mask(self, sz):
-        mask = (torch.triu(torch.ones((sz.shape[0], sz.shape[0]), device=DEVICE)) == 1).transpose(0, 1)
+        mask = (torch.triu(torch.ones((sz.shape[0], sz.shape[0]))) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
@@ -119,7 +118,7 @@ class Masker(nn.Module):
         src_seq_len = src.shape[0]
 
         tgt_mask = self.generate_square_subsequent_mask(tgt)
-        src_mask = torch.zeros((src_seq_len, src_seq_len),device=DEVICE).type(torch.bool)
+        src_mask = torch.zeros((src_seq_len, src_seq_len)).type(torch.bool)
 
         src_padding_mask = (src == PAD_IDX).transpose(0, 1)
         tgt_padding_mask = (tgt == PAD_IDX).transpose(0, 1)
