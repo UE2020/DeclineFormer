@@ -116,7 +116,7 @@ fn main() -> Result<(), anyhow::Error> {
                 .beta2(0.98)
                 .eps(1e-9)
                 .build(&vs, 0.0001)?;
-            let file = read_to_string(&args[4])?;
+            let file = read_to_string(&args[5])?;
             let mut pairs: Vec<[&str; 2]> = file
                 .lines()
                 .map(|l| {
