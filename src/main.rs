@@ -180,7 +180,7 @@ fn main() -> Result<(), anyhow::Error> {
                             src,
                             tgt_input,
                             src_mask,
-                            tgt_mask,
+                            tgt_mask.to_kind(Kind::Bool),
                             src_padding_mask.shallow_clone(),
                             tgt_padding_mask,
                             src_padding_mask,
