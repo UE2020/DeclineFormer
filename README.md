@@ -3,9 +3,16 @@ Translating Latin to English using a sequence-to-sequence transformer augmented 
 
 ## Usage
 Evaluation:
-```sh
-$ ./target/release/seq2seq test model.pt "<NOM>this<SEP><ABL>gate<SEP>just,<SEP><GEN>of owner<SEP><ACT>they will enter<SEP>in<SEP><ACT>may I go."
-output: <BOS> this is the gate of the lord. the just will enter by it.<EOS>
+```
+$ ./target/release/seq2seq test model.pt "<NOM>who<SEP>it was going,<SEP>and<SEP>not<SEP>it was turn backed,<SEP>while<SEP>they would be dried<SEP><GEN>of water<SEP>above<SEP><ACC>earth."
+output: <BOS> and so he went forth and did not return, until the water of the earth were dried up upon the earth.<EOS>
+```
+
+The above is a translation of the Latin Vulgate verse of Genesis 8:7, after training 16 epochs on the included annotated dataset
+```
+Latin: qui egrediebatur, et non revertebatur, donec siccarentur aquae super terram.
+English Ground Truth: which went forth and did not return, until the waters were dried up across the earth.
+English Predicted: and so he went forth and did not return, until the water of the earth were dried up upon the earth.
 ```
 
 Tokenization:
