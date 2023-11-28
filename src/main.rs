@@ -36,7 +36,8 @@ pub fn greedy_decode<M, N, PT, PP, D>(
     input: &str,
     net: &TrainableCModule,
     masker: &CModule,
-    tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
+    src_tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
+    tgt_tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
     device: Device,
 ) -> Result<String, anyhow::Error>
 where
@@ -47,7 +48,7 @@ where
     D: Decoder,
 {
     let src = tensor_transform(
-        &tokenizer
+        &src_tokenizer
             .encode(input, true)
             .unwrap()
             .get_ids()
@@ -85,7 +86,7 @@ where
             break;
         }
     }
-    Ok(tokenizer.decode(&tokens, false).unwrap())
+    Ok(tgt_tokenizer.decode(&tokens, false).unwrap())
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -95,16 +96,17 @@ fn main() -> Result<(), anyhow::Error> {
     let device = Device::cuda_if_available();
     match args[1].as_str() {
         "test-tok" => {
-            let tokenizer = token::train_tokenizer(&args[2], args[3].parse()?)
-                .expect("failed to train tokenizer");
-            println!("{:?}", tokenizer.encode(args.get(4).map(|s| s.as_str()).unwrap_or("in<SEP><ABL>beginning<SEP>it created<SEP><NOM>God<SEP><ACC>heaven,<SEP>and<SEP><ACC>earth."), false).unwrap().get_tokens());
+            let tokenizer = token::load(&args[2]).expect("failed to train tokenizer");
+            println!("{:?}", tokenizer.encode(args.get(3).map(|s| s.as_str()).unwrap_or("in<SEP><ABL>beginning<SEP>it created<SEP><NOM>God<SEP><ACC>heaven,<SEP>and<SEP><ACC>earth."), false).unwrap().get_tokens());
         }
         "train" => {
             remove_dir_all("./logdir").ok();
             let mut train_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/train");
             const BATCH_SIZE: usize = 128;
-            let tokenizer = token::train_tokenizer(&args[2], args[3].parse()?)
+            let src_tokenizer = token::train_tokenizer(&args[2], "src_tokenizer.json", args[4].parse()?)
+                .expect("failed to train & save tokenizer");
+            let tgt_tokenizer = token::train_tokenizer(&args[3], "tgt_tokenizer.json", args[4].parse()?)
                 .expect("failed to train & save tokenizer");
             let vs = VarStore::new(device);
             let mut net = TrainableCModule::load("init.pt", vs.root())?;
@@ -133,7 +135,7 @@ fn main() -> Result<(), anyhow::Error> {
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
                         src_batch.push(tensor_transform(
-                            &tokenizer
+                            &src_tokenizer
                                 .encode(*src_sample, true)
                                 .unwrap()
                                 .get_ids()
@@ -142,7 +144,7 @@ fn main() -> Result<(), anyhow::Error> {
                                 .collect::<Vec<_>>(),
                         ));
                         tgt_batch.push(tensor_transform(
-                            &tokenizer
+                            &tgt_tokenizer
                                 .encode(*tgt_sample, true)
                                 .unwrap()
                                 .get_ids()
@@ -197,7 +199,7 @@ fn main() -> Result<(), anyhow::Error> {
                     train_writer.add_scalar("Loss", f32::try_from(loss)?, steps as _);
                     if steps % 50 == 0 {
                         net.set_eval();
-                        println!("sample: {}", greedy_decode("in<SEP><ABL>beginning<SEP><ACT>it created<SEP><NOM>God<SEP><ACC>heaven,<SEP>and<SEP><ACC>earth.", &net, &masker, &tokenizer, device)?);
+                        println!("sample: {}", greedy_decode("in<SEP><ABL>beginning<SEP><ACT>it created<SEP><NOM>God<SEP><ACC>heaven,<SEP>and<SEP><ACC>earth.", &net, &masker, &src_tokenizer, &tgt_tokenizer, device)?);
                         net.set_train();
                     }
                 }
@@ -209,10 +211,11 @@ fn main() -> Result<(), anyhow::Error> {
             let vs = VarStore::new(device);
             let mut net = TrainableCModule::load(&args[2], vs.root())?;
             net.set_eval();
-            let tokenizer = token::load().unwrap();
+            let src_tokenizer = token::load("src_tokenizer.json").unwrap();
+            let tgt_tokenizer = token::load("tgt_tokenizer.json").unwrap();
             println!(
                 "output: {}",
-                greedy_decode(&args[3], &net, &masker, &tokenizer, device)?
+                greedy_decode(&args[3], &net, &masker, &src_tokenizer, &tgt_tokenizer, device)?
             );
         }
         _ => bail!("Invalid arguments"),

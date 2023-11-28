@@ -6,6 +6,7 @@ use tokenizers::{AddedToken, Result, Tokenizer, TokenizerBuilder, TokenizerImpl}
 
 pub fn train_tokenizer(
     vocab: &str,
+    save_dir: &str,
     vocab_size: usize,
 ) -> Result<TokenizerImpl<BPE, Sequence, ByteLevel, ByteLevel, ByteLevel>> {
     let mut trainer = BpeTrainerBuilder::new()
@@ -47,10 +48,10 @@ pub fn train_tokenizer(
     let pretty = false;
     tokenizer
         .train_from_files(&mut trainer, vec![vocab.to_string()])?
-        .save("tokenizer.json", pretty)?;
+        .save(save_dir, pretty)?;
     Ok(tokenizer)
 }
 
-pub fn load() -> Result<Tokenizer> {
-    Tokenizer::from_file("tokenizer.json")
+pub fn load(dir: &str) -> Result<Tokenizer> {
+    Tokenizer::from_file(dir)
 }

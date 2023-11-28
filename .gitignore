@@ -1,4 +1,4 @@
 /target
 *.pt
-tokenizer.json
+*tokenizer.json
 /logdir
