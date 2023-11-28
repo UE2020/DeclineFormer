@@ -76,15 +76,16 @@ class Seq2SeqTransformer(nn.Module):
         outs = self.transformer(src_emb, tgt_emb, src_mask, tgt_mask, None,
                                 src_padding_mask, tgt_padding_mask, memory_key_padding_mask)
         return self.generator(outs)
-
+    @torch.jit.export
     def encode(self, src: Tensor, src_mask: Tensor):
         return self.transformer.encoder(self.positional_encoding(
                             self.src_tok_emb(src)), src_mask)
-
+    @torch.jit.export
     def decode(self, tgt: Tensor, memory: Tensor, tgt_mask: Tensor):
         return self.transformer.decoder(self.positional_encoding(
                           self.tgt_tok_emb(tgt)), memory,
                           tgt_mask)
+    @torch.jit.export
     def out_linear(self, i: Tensor):
         return self.generator(i)
 
@@ -150,12 +151,7 @@ for p in transformer.parameters():
     if p.dim() > 1:
         nn.init.xavier_uniform_(p)
 transformer.eval()
-traced = torch.jit.trace_module(transformer, {
-    "forward": (src, tgt_input, src_mask, tgt_mask, src_padding_mask, tgt_padding_mask, src_padding_mask),
-    "encode": ((torch.zeros(22, 1)).type(torch.LongTensor), torch.zeros((22, 22)).type(torch.bool)),
-    "decode": (torch.ones(1, 1).fill_(2).type(torch.long), torch.randn((22, 1, 512)), (generate_square_subsequent_mask(1).type(torch.bool))),
-    "out_linear": (torch.randn((1, 512)))
-})
+traced = torch.jit.script(transformer)
 torch.jit.save(traced, "init.pt")
 
 from torch.nn.utils.rnn import pad_sequence

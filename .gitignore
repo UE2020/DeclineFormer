@@ -2,3 +2,4 @@
 *.pt
 *tokenizer.json
 /logdir
+/model*

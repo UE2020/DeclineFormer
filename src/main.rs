@@ -199,7 +199,10 @@ fn main() -> Result<(), anyhow::Error> {
                     train_writer.add_scalar("Loss", f32::try_from(loss)?, steps as _);
                     if steps % 50 == 0 {
                         net.set_eval();
-                        println!("sample: {}", greedy_decode("in<SEP><ABL>beginning<SEP><ACT>it created<SEP><NOM>God<SEP><ACC>heaven,<SEP>and<SEP><ACC>earth.", &net, &masker, &src_tokenizer, &tgt_tokenizer, device)?);
+                        let pair = pairs.choose(&mut rand::thread_rng()).expect("failed to sample dataset");
+                        println!("input:        {}", pair[0]);
+                        println!("ground truth: {}", pair[1]);
+                        println!("sample:       {}", greedy_decode(pair[0], &net, &masker, &src_tokenizer, &tgt_tokenizer, device)?);
                         net.set_train();
                     }
                 }

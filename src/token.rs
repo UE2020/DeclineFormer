@@ -26,9 +26,6 @@ pub fn train_tokenizer(
             AddedToken::from(String::from("<ABL>"), true),
             AddedToken::from(String::from("<LOC>"), true),
             AddedToken::from(String::from("<VOC>"), true),
-            AddedToken::from(String::from("<ACT>"), true),
-            AddedToken::from(String::from("<PAS>"), true),
-            AddedToken::from(String::from("<PAR>"), true),
         ])
         .build();
 
