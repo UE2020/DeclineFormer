@@ -183,9 +183,7 @@ fn main() -> Result<(), anyhow::Error> {
                         ),
                         _ => bail!("Invalid structure from masker"),
                     };
-                    dbg!(
-                        src_mask.kind(), src_padding_mask.kind()
-                    );
+                    let src_padding_mask = src_padding_mask.to_device(device);
                     let logits = net.method_ts(
                         "forward",
                         &[
@@ -193,9 +191,9 @@ fn main() -> Result<(), anyhow::Error> {
                             tgt_input.to_device(device),
                             src_mask.to_device(device),
                             tgt_mask.to_kind(Kind::Bool).to_device(device),
-                            src_padding_mask.shallow_clone().to_device(device),
+                            src_padding_mask.shallow_clone(),
                             tgt_padding_mask.to_device(device),
-                            src_padding_mask.to_device(device),
+                            src_padding_mask,
                         ],
                     )?;
                     opt.zero_grad();
