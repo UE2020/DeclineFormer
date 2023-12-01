@@ -164,10 +164,8 @@ fn main() -> Result<(), anyhow::Error> {
                                 .collect::<Vec<_>>(),
                         ));
                     }
-                    let src = Tensor::pad_sequence::<Tensor>(&src_batch, false, PAD_IDX as f64)
-                        .to_device(device);
-                    let tgt = Tensor::pad_sequence::<Tensor>(&tgt_batch, false, PAD_IDX as f64)
-                        .to_device(device);
+                    let src = Tensor::pad_sequence::<Tensor>(&src_batch, false, PAD_IDX as f64);
+                    let tgt = Tensor::pad_sequence::<Tensor>(&tgt_batch, false, PAD_IDX as f64);
                     let tgt_input = tgt.narrow(0, 0, tgt.size()[0] - 1);
                     let masks = masker.method_is(
                         "create_mask",
@@ -188,13 +186,13 @@ fn main() -> Result<(), anyhow::Error> {
                     let logits = net.method_ts(
                         "forward",
                         &[
-                            src,
-                            tgt_input,
-                            src_mask,
-                            tgt_mask.to_kind(Kind::Bool),
-                            src_padding_mask.shallow_clone(),
-                            tgt_padding_mask,
-                            src_padding_mask,
+                            src.to_device(device),
+                            tgt_input.to_device(device),
+                            src_mask.to_device(device),
+                            tgt_mask.to_kind(Kind::Bool).to_device(device),
+                            src_padding_mask.shallow_clone().to_device(device),
+                            tgt_padding_mask.to_device(device),
+                            src_padding_mask.to_device(device),
                         ],
                     )?;
                     opt.zero_grad();
