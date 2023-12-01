@@ -4,6 +4,8 @@ import torch.nn as nn
 from torch.nn import Transformer
 import math
 from typing import Iterable, List
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
 
 UNK_IDX = 0
 PAD_IDX = 1
