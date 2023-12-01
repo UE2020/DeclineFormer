@@ -3,3 +3,4 @@
 *tokenizer.json
 /logdir
 /model*
+*.txt

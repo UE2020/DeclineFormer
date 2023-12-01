@@ -18,14 +18,14 @@ pub fn train_tokenizer(
             AddedToken::from(String::from("<PAD>"), true),
             AddedToken::from(String::from("<BOS>"), true),
             AddedToken::from(String::from("<EOS>"), true),
-            AddedToken::from(String::from("<SEP>"), true),
-            AddedToken::from(String::from("<NOM>"), true),
-            AddedToken::from(String::from("<GEN>"), true),
-            AddedToken::from(String::from("<DAT>"), true),
-            AddedToken::from(String::from("<ACC>"), true),
-            AddedToken::from(String::from("<ABL>"), true),
-            AddedToken::from(String::from("<LOC>"), true),
-            AddedToken::from(String::from("<VOC>"), true),
+            // AddedToken::from(String::from("<SEP>"), true),
+            // AddedToken::from(String::from("<NOM>"), true),
+            // AddedToken::from(String::from("<GEN>"), true),
+            // AddedToken::from(String::from("<DAT>"), true),
+            // AddedToken::from(String::from("<ACC>"), true),
+            // AddedToken::from(String::from("<ABL>"), true),
+            // AddedToken::from(String::from("<LOC>"), true),
+            // AddedToken::from(String::from("<VOC>"), true),
         ])
         .build();
 

@@ -1,7 +1,7 @@
 pub mod token;
 use anyhow::bail;
 use rand::seq::SliceRandom;
-use std::fs::{read_to_string, remove_dir_all};
+use std::{fs::{read_to_string, remove_dir_all}, time::{Instant, Duration}};
 use tch::{
     nn::{self, OptimizerConfig, VarStore},
     CModule, Device, IValue, IndexOp, Kind, Reduction, Tensor, TrainableCModule,
@@ -60,7 +60,7 @@ where
     .to_device(device);
     let num_tokens = src.size()[0];
     let src_mask = Tensor::zeros(&[num_tokens, num_tokens], (Kind::Bool, device));
-    let max_len = num_tokens + 5;
+    let max_len = num_tokens * 2;
     let start_symbol = BOS_IDX;
     let memory = net.method_ts("encode", &[src, src_mask])?;
     let mut ys = Tensor::full(&[1, 1], start_symbol, (Kind::Int64, device));
@@ -117,20 +117,31 @@ fn main() -> Result<(), anyhow::Error> {
                 .eps(1e-9)
                 .build(&vs, 0.0001)?;
             let file = read_to_string(&args[5])?;
+            let flip = args[6] == "true";
+            let hours: f32 = args[7].parse()?;
             let mut pairs: Vec<[&str; 2]> = file
                 .lines()
                 .map(|l| {
                     let split: Vec<_> = l.split('\t').collect();
-                    [split[0].trim(), split[1].trim()]
+                    if flip {
+                        [split[1].trim(), split[0].trim()]
+                    } else {
+                        [split[0].trim(), split[1].trim()]
+                    }
                 })
                 .collect();
+            println!("Data is in memory.");
             let loss = |t: Tensor, target: Tensor| {
                 t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.0)
             };
             let mut steps = 0;
-            for epoch in 1.. {
+            let now = Instant::now();
+            'outer: for epoch in 1.. {
                 pairs.shuffle(&mut rand::thread_rng());
                 for batch in pairs.chunks(BATCH_SIZE) {
+                    if batch.len() < BATCH_SIZE {
+                        continue;
+                    }
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
@@ -205,10 +216,14 @@ fn main() -> Result<(), anyhow::Error> {
                         println!("sample:       {}", greedy_decode(pair[0], &net, &masker, &src_tokenizer, &tgt_tokenizer, device)?);
                         net.set_train();
                     }
+                    if now.elapsed() >= Duration::from_secs_f32(hours * 3600.0) {
+                        break 'outer;
+                    }
                 }
                 println!("Epoch {} complete", epoch);
                 net.save(&format!("model_{}.pt", epoch))?;
             }
+            net.save("final.pt")?;
         }
         "test" => {
             let vs = VarStore::new(device);
