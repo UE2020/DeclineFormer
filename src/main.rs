@@ -196,7 +196,7 @@ fn main() -> Result<(), anyhow::Error> {
                         ],
                     )?;
                     opt.zero_grad();
-                    let tgt_out = &tgt.narrow(0, 1, tgt.size()[0] - 1);
+                    let tgt_out = &tgt.narrow(0, 1, tgt.size()[0] - 1).to_device(device);
                     let logits_shape = logits.size();
                     let loss = loss(
                         logits.reshape(&[-1i64, logits_shape[logits_shape.len() - 1]]),
