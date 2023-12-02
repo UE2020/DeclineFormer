@@ -21,22 +21,19 @@ output: <BOS> those who do not listen to god, will they die.<EOS>
 
 Well done! Comparing Google Translate and our result:
 
-
-GTranslate: *Those who do not listen to God will surely perish.*
-
-Our result: *those who do not listen to god, will they die.*
-
+| | Translation |
+|---|---|
+| **GTranslate** | *Those who do not listen to God will surely perish.* |
+| **Our result** | *those who do not listen to god, will they die.* |
 
 A comparison of translations from the Latin Vulgate (Genesis 8:7):
 
-
-Latin: *qui egrediebatur, et non revertebatur, donec siccarentur aquae super terram.*
-
-English Ground Truth: *which went forth and did not return, until the waters were dried up across the earth.*
-
-GTranslate: *who went out and did not return until the waters were dried up on the earth.*
-
-English Predicted: *and he went out, and he did not return, until the waters were dried up upon the earth.*
+| | Translation |
+|---|---|
+| **Latin** | *qui egrediebatur, et non revertebatur, donec siccarentur aquae super terram.* |
+| **English Ground Truth** | *which went forth and did not return, until the waters were dried up across the earth.* |
+| **GTranslate** | *who went out and did not return until the waters were dried up on the earth.* |
+| **English Predicted** | *and he went out, and he did not return, until the waters were dried up upon the earth.* |
 
 ### Tokenization
 
