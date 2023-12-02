@@ -31,9 +31,9 @@ A comparison of translations from the Latin Vulgate (Genesis 8:7):
 | | Translation |
 |---|---|
 | **Latin** | *qui egrediebatur, et non revertebatur, donec siccarentur aquae super terram.* |
-| **English Ground Truth** | *which went forth and did not return, until the waters were dried up across the earth.* |
+| **Ground Truth** | *which went forth and did not return, until the waters were dried up across the earth.* |
 | **GTranslate** | *who went out and did not return until the waters were dried up on the earth.* |
-| **English Predicted** | *and he went out, and he did not return, until the waters were dried up upon the earth.* |
+| **Our result** | *and he went out, and he did not return, until the waters were dried up upon the earth.* |
 
 ### Tokenization
 
