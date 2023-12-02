@@ -1,5 +1,5 @@
 # DeclineFormer
-Translating Latin to English using a sequence-to-sequence transformer augmented with domain knowledge.
+Translating Latin to English using a sequence-to-sequence transformer augmented with learnable morphologically-derived grammatical embeddings.
 
 ## Usage
 ### Evaluation
