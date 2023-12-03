@@ -89,6 +89,10 @@ where
     Ok(tgt_tokenizer.decode(&tokens, false).unwrap())
 }
 
+fn get_learning_rate(step: usize, embed_dim: usize, warmup_steps: usize) -> f64 {
+    return (embed_dim as f64).powf(-0.5) * ((step as f64).powf(-0.5)).min(step as f64 * (warmup_steps as f64).powf(-1.5))
+}
+
 fn main() -> Result<(), anyhow::Error> {
     let args = std::env::args().collect::<Vec<_>>();
     let mut masker = CModule::load("mask.pt")?;
@@ -132,7 +136,7 @@ fn main() -> Result<(), anyhow::Error> {
                 .collect();
             println!("Data is in memory.");
             let loss = |t: Tensor, target: Tensor| {
-                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.0)
+                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.1)
             };
             let mut steps = 0;
             let now = Instant::now();
@@ -142,6 +146,7 @@ fn main() -> Result<(), anyhow::Error> {
                     if batch.len() < BATCH_SIZE {
                         continue;
                     }
+                    opt.set_lr(get_learning_rate(steps, 512, 4000));
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
