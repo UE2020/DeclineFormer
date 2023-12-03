@@ -116,10 +116,10 @@ fn main() -> Result<(), anyhow::Error> {
             let mut net = TrainableCModule::load("init.pt", vs.root())?;
             net.set_train();
             let mut opt = nn::Adam::default()
-                .beta1(0.9)
-                .beta2(0.98)
-                .eps(1e-9)
-                .build(&vs, 0.0001)?;
+                // .beta1(0.9)
+                // .beta2(0.98)
+                // .eps(1e-9)
+                .build(&vs, 0.0005)?;
             let file = read_to_string(&args[5])?;
             let flip = args[6] == "true";
             let hours: f32 = args[7].parse()?;
@@ -136,17 +136,21 @@ fn main() -> Result<(), anyhow::Error> {
                 .collect();
             println!("Data is in memory.");
             let loss = |t: Tensor, target: Tensor| {
-                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.1)
+                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.0)
             };
             let mut steps = 0;
             let now = Instant::now();
             'outer: for epoch in 1.. {
+                let mut total_loss = 0.0;
+                let mut epoch_steps = 0;
                 pairs.shuffle(&mut rand::thread_rng());
                 for batch in pairs.chunks(BATCH_SIZE) {
                     if batch.len() < BATCH_SIZE {
                         continue;
                     }
-                    opt.set_lr(get_learning_rate(steps, 512, 4000));
+                    steps += 1;
+                    epoch_steps += 1;
+                    //opt.set_lr(get_learning_rate(steps, 512, 4000));
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
@@ -210,8 +214,9 @@ fn main() -> Result<(), anyhow::Error> {
                     );
                     loss.backward();
                     opt.step();
-                    steps += 1;
-                    train_writer.add_scalar("Loss", f32::try_from(loss)?, steps as _);
+                    let loss = f32::try_from(loss)?;
+                    total_loss += loss;
+                    train_writer.add_scalar("Loss", loss, steps as _);
                     if steps % 50 == 0 {
                         net.set_eval();
                         let pair = pairs.choose(&mut rand::thread_rng()).expect("failed to sample dataset");
@@ -224,7 +229,7 @@ fn main() -> Result<(), anyhow::Error> {
                         break 'outer;
                     }
                 }
-                println!("Epoch {} complete", epoch);
+                println!("Epoch {} complete; loss={:.2}", epoch, total_loss / epoch_steps as f32);
                 net.save(&format!("model_{}.pt", epoch))?;
             }
             net.save("final.pt")?;

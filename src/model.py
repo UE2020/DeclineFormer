@@ -149,14 +149,13 @@ traced = torch.jit.trace_module(Masker(), {
 torch.jit.save(traced, "mask.pt")
 
 transformer = Seq2SeqTransformer(NUM_ENCODER_LAYERS, NUM_DECODER_LAYERS, EMB_SIZE, NHEAD, SRC_VOCAB_SIZE, TGT_VOCAB_SIZE, FFN_HID_DIM)
-for p in transformer.parameters():
-    if p.dim() > 1:
-        nn.init.xavier_uniform_(p)
+def initialize_weights(m):
+    if hasattr(m, 'weight') and m.weight.dim() > 1:
+        nn.init.xavier_uniform_(m.weight.data)
+transformer.apply(initialize_weights);
 transformer.eval()
 traced = torch.jit.script(transformer)
 torch.jit.save(traced, "init.pt")
-
-from torch.nn.utils.rnn import pad_sequence
 
 def sequential_transforms(*transforms):
     def func(txt_input):
