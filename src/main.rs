@@ -1,5 +1,6 @@
 pub mod token;
 use anyhow::bail;
+use ordered_float::OrderedFloat;
 use rand::seq::SliceRandom;
 use std::{
     fs::{read_to_string, remove_dir_all},
@@ -7,7 +8,7 @@ use std::{
 };
 use tch::{
     nn::{self, OptimizerConfig, VarStore},
-    CModule, Device, IValue, IndexOp, Kind, Reduction, Tensor, TrainableCModule,
+    CModule, Device, IValue, IndexOp, Kind, Reduction, Tensor, TrainableCModule, kind::Element,
 };
 use tensorboard_rs as tensorboard;
 use tokenizers::{Decoder, Model, Normalizer, PostProcessor, PreTokenizer, TokenizerImpl};
@@ -90,6 +91,108 @@ where
         }
     }
     Ok(tgt_tokenizer.decode(&tokens, false).unwrap())
+}
+
+pub fn beam_search<M, N, PT, PP, D>(
+    input: &str,
+    net: &TrainableCModule,
+    masker: &CModule,
+    src_tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
+    tgt_tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
+    device: Device,
+) -> Result<String, anyhow::Error>
+where
+    M: Model,
+    N: Normalizer,
+    PT: PreTokenizer,
+    PP: PostProcessor,
+    D: Decoder,
+{
+    const BEAM_SIZE: usize = 3;
+    const ALPHA: f64 = 0.6;
+    fn sequence_length_penalty(length: usize, alpha: f64) -> f64 {
+        ((5.0 + length as f64) / (5.0 + 1.0)).powf(alpha)
+    }
+    let src = tensor_transform(
+        &src_tokenizer
+            .encode(input, true)
+            .unwrap()
+            .get_ids()
+            .into_iter()
+            .map(|id| *id as i64)
+            .collect::<Vec<_>>(),
+    )
+    .view((-1, 1))
+    .to_device(device);
+    let num_tokens = src.size()[0];
+    let src_mask = Tensor::zeros(&[num_tokens, num_tokens], (Kind::Bool, device));
+    let max_len = num_tokens * 2;
+    let start_symbol = BOS_IDX;
+    let mut memory = net.method_ts("encode", &[src, src_mask])?.to_device(device);
+    let mut ys = Tensor::full(&[1, 1], start_symbol, (Kind::Int64, device));
+    let mut scores = Tensor::from_slice(&[0.]);
+    for i in 0..(max_len - 1) {
+        let tgt_mask = masker
+            .method_ts("generate_square_subsequent_mask", &[ys.shallow_clone()])?
+            .to_kind(Kind::Bool)
+            .to_device(device);
+        dbg!(tgt_mask.size());
+        let out = net
+            .method_ts("decode", &[ys.shallow_clone(), memory.shallow_clone(), tgt_mask])?
+            .transpose(0, 1);
+        let prob = net.method_ts("out_linear", &[out.i((.., -1))])?;
+        let log_probs = prob.log_softmax(1, None);
+        let mut log_probs = log_probs / sequence_length_penalty(i as usize + 1, ALPHA);
+        let eos_mask = ys.narrow(1, -1, 1).eq(EOS_IDX);
+        let _ = log_probs.masked_fill_(&eos_mask, 0);
+        scores = scores.unsqueeze(1) + log_probs;
+        let topk = scores.reshape(-1);
+        let topk_dims = topk.size().len();
+        let topk = topk.topk(BEAM_SIZE as _, topk_dims as i64 - 1, true, true);
+        scores = topk.0;
+        let indices = topk.1;
+        let beam_indices = indices.divide_scalar_mode(tgt_tokenizer.get_vocab_size(true) as f64, "floor");
+        let token_indices = indices.remainder(tgt_tokenizer.get_vocab_size(true) as f64);
+        //let beam_indices = flat_tensor_array::<f32>(&beam_indices)?;
+        //let token_indices = flat_tensor_array::<f32>(&token_indices)?;
+        //let cpu_ys = flat_tensor_array::<i64>(&ys)?;
+        let mut next_decoder_input = vec![];
+        for (beam_index, mut token_index) in beam_indices.iter::<f64>()?.zip(token_indices.iter::<f64>()?) {
+            let prev_decoder_input = ys.i(f64::try_from(beam_index)? as i64);
+            if i64::try_from(prev_decoder_input.shallow_clone())? == EOS_IDX {
+                token_index = EOS_IDX as f64;
+            }
+            let token_index = Tensor::from_slice(&[token_index as i64]);
+            next_decoder_input.push(Tensor::cat(&[prev_decoder_input, token_index], 0))
+        }
+        dbg!(ys.size());
+        ys = Tensor::vstack(&next_decoder_input);
+        dbg!(ys.size());
+        let mask = ys.narrow(1, -1, 1).eq(EOS_IDX);
+        if i64::try_from(mask.sum(None))? == BEAM_SIZE as i64 {
+            break;
+        }
+        if i == 0 {
+            let mem_size = memory.size();
+            dbg!(memory.size());
+            memory = memory.expand(&[mem_size[0], BEAM_SIZE as i64, mem_size[2]], false);
+            dbg!(memory.size());
+        }
+    }
+    let decoder_output = memory.iter::<f64>()?.zip(scores.iter::<f64>()?).max_by_key(|x| OrderedFloat(x.1));
+    dbg!(decoder_output);
+    //let decoder_output = memory.i(index as i64);
+
+    Ok(tgt_tokenizer.decode(&[], false).unwrap())
+}
+
+pub fn flat_tensor_array<T: Element>(tensor: &Tensor) -> Result<Vec<T>, anyhow::Error> {
+    let num_elem = tensor.numel();
+    let mut vec = vec![T::ZERO; num_elem];
+    tensor.f_to_kind(T::KIND)?.f_copy_data(&mut vec, num_elem)?;
+    let shape: Vec<usize> = tensor.size().iter().map(|s| *s as usize).collect();
+    dbg!(shape);
+    Ok(vec)
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -314,7 +417,7 @@ fn main() -> Result<(), anyhow::Error> {
                     let loss = f32::try_from(loss)?;
                     test_loss_total += loss;
                 }
-                println!("Epoch {} complete\ntest loss={:.2}\ttrain PPL={:.4}\ntest lost={:.2}\ttest PPL={:.4}", epoch, total_loss / epoch_steps as f32, (total_loss / epoch_steps as f32).exp(), test_loss_total / test_steps as f32, (test_loss_total / test_steps as f32).exp());
+                println!("Epoch {} complete\ntrain loss={:.2}\ttrain PPL={:.4}\ntest loss={:.2}\ttest PPL={:.4}", epoch, total_loss / epoch_steps as f32, (total_loss / epoch_steps as f32).exp(), test_loss_total / test_steps as f32, (test_loss_total / test_steps as f32).exp());
                 net.save(&format!("model_{}.pt", epoch))?;
                 train_pairs.shuffle(&mut rand::thread_rng());
             }
