@@ -129,8 +129,8 @@ class Masker(nn.Module):
 
 torch.manual_seed(0)
 
-SRC_VOCAB_SIZE = 8000
-TGT_VOCAB_SIZE = 8000
+SRC_VOCAB_SIZE = 5000
+TGT_VOCAB_SIZE = 5000
 EMB_SIZE = 128
 NHEAD = 8
 FFN_HID_DIM = 512

@@ -213,6 +213,8 @@ fn main() -> Result<(), anyhow::Error> {
             remove_dir_all("./logdir").ok();
             let mut train_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/train");
+            let mut test_writer =
+                tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
             const BATCH_SIZE: usize = 128;
             let src_tokenizer =
                 token::train_tokenizer(&args[2], "src_tokenizer.json", args[4].parse()?)
@@ -246,8 +248,8 @@ fn main() -> Result<(), anyhow::Error> {
             let len = train_pairs.len();
             let test_pairs = train_pairs.split_off(len - 2500);
             println!("Data is in memory.");
-            let loss = |t: Tensor, target: Tensor| {
-                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.1)
+            let loss = |t: Tensor, target: Tensor, label_smoothing: f64| {
+                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, label_smoothing)
             };
             let mut steps = 0;
             let now = Instant::now();
@@ -322,6 +324,7 @@ fn main() -> Result<(), anyhow::Error> {
                     let loss = loss(
                         logits.reshape(&[-1i64, logits_shape[logits_shape.len() - 1]]),
                         tgt_out.reshape(&[-1]),
+                        0.1
                     );
                     loss.backward();
                     opt.step();
@@ -418,10 +421,13 @@ fn main() -> Result<(), anyhow::Error> {
                     let loss = loss(
                         logits.reshape(&[-1i64, logits_shape[logits_shape.len() - 1]]),
                         tgt_out.reshape(&[-1]),
+                        0.0
                     );
                     let loss = f32::try_from(loss)?;
                     test_loss_total += loss;
                 }
+                test_writer.add_scalar("Loss", test_loss_total / test_steps as f32, steps as _);
+                println!("---------------------------------------------------------------------------");
                 println!("Epoch {} complete\ntrain loss={:.2}\ttrain PPL={:.4}\ntest loss={:.2}\ttest PPL={:.4}", epoch, total_loss / epoch_steps as f32, (total_loss / epoch_steps as f32).exp(), test_loss_total / test_steps as f32, (test_loss_total / test_steps as f32).exp());
                 net.save(&format!("model_{}.pt", epoch))?;
                 train_pairs.shuffle(&mut rand::thread_rng());
