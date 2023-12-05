@@ -195,6 +195,10 @@ pub fn flat_tensor_array<T: Element>(tensor: &Tensor) -> Result<Vec<T>, anyhow::
     Ok(vec)
 }
 
+fn get_learning_rate(step: usize, embed_dim: usize, warmup_steps: usize) -> f64 {
+    return (embed_dim as f64).powf(-0.5) * ((step as f64).powf(-0.5)).min(step as f64 * (warmup_steps as f64).powf(-1.5))
+}
+
 fn main() -> Result<(), anyhow::Error> {
     let args = std::env::args().collect::<Vec<_>>();
     let mut masker = CModule::load("mask.pt")?;
@@ -220,10 +224,10 @@ fn main() -> Result<(), anyhow::Error> {
             let mut net = TrainableCModule::load("init.pt", vs.root())?;
             net.set_train();
             let mut opt = nn::Adam::default()
-                // .beta1(0.9)
-                // .beta2(0.98)
-                // .eps(1e-9)
-                .build(&vs, 0.0005)?;
+                .beta1(0.9)
+                .beta2(0.98)
+                .eps(1e-9)
+                .build(&vs, 0.0)?;
             let file = read_to_string(&args[5])?;
             let flip = args[6] == "true";
             let hours: f32 = args[7].parse()?;
@@ -240,10 +244,10 @@ fn main() -> Result<(), anyhow::Error> {
                 .collect();
             train_pairs.shuffle(&mut rand::thread_rng());
             let len = train_pairs.len();
-            let test_pairs = train_pairs.split_off(len - 1000);
+            let test_pairs = train_pairs.split_off(len - 2500);
             println!("Data is in memory.");
             let loss = |t: Tensor, target: Tensor| {
-                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.0)
+                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, 0.1)
             };
             let mut steps = 0;
             let now = Instant::now();
@@ -256,6 +260,7 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                     steps += 1;
                     epoch_steps += 1;
+                    opt.set_lr(get_learning_rate(steps, 128, 1000));
                     //opt.set_lr(get_learning_rate(steps, 512, 4000));
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
