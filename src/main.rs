@@ -216,7 +216,6 @@ fn main() -> Result<(), anyhow::Error> {
             let mut test_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
             const BATCH_SIZE: usize = 128;
-            const GRADS_ACCUM: usize = 1;
             let src_tokenizer =
                 token::train_tokenizer(&args[2], "src_tokenizer.json", args[4].parse()?)
                     .expect("failed to train & save tokenizer");
@@ -320,6 +319,7 @@ fn main() -> Result<(), anyhow::Error> {
                             src_padding_mask,
                         ],
                     )?;
+                    opt.zero_grad();
                     let tgt_out = &tgt.narrow(0, 1, tgt.size()[0] - 1).to_device(device);
                     let logits_shape = logits.size();
                     let loss = loss(
@@ -327,15 +327,12 @@ fn main() -> Result<(), anyhow::Error> {
                         tgt_out.reshape(&[-1]),
                         0.1
                     );
-                    (&loss / GRADS_ACCUM as f64).backward();
-                    if steps % epoch_steps == 0 {
-                        opt.step();
-                        opt.zero_grad();
-                    }
+                    loss.backward();
+                    opt.step();
                     let loss = f32::try_from(loss)?;
                     total_loss += loss;
                     train_writer.add_scalar("Loss", loss, steps as _);
-                    if steps % (200 * GRADS_ACCUM) == 0 {
+                    if steps % 50 == 0 {
                         net.set_eval();
                         let pair = train_pairs
                             .choose(&mut rand::thread_rng())
