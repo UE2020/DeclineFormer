@@ -332,7 +332,7 @@ fn main() -> Result<(), anyhow::Error> {
                     let loss = f32::try_from(loss)?;
                     total_loss += loss;
                     train_writer.add_scalar("Loss", loss, steps as _);
-                    if steps % 50 == 0 {
+                    if steps % 500 == 0 {
                         net.set_eval();
                         let pair = train_pairs
                             .choose(&mut rand::thread_rng())
