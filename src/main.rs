@@ -305,7 +305,6 @@ fn main() -> Result<(), anyhow::Error> {
                         _ => bail!("Invalid structure from masker"),
                     };
                     let src_padding_mask = src_padding_mask.to_device(device);
-                    dbg!(tgt_input.size(), tgt_mask.size());
                     let logits = net.method_ts(
                         "forward",
                         &[
