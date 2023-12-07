@@ -215,7 +215,7 @@ fn main() -> Result<(), anyhow::Error> {
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/train");
             let mut test_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
-            const BATCH_SIZE: usize = 64;
+            const BATCH_SIZE: usize = 128;
             let src_tokenizer =
                 token::train_tokenizer(&args[2], "src_tokenizer.json", args[4].parse()?)
                     .expect("failed to train & save tokenizer");
@@ -243,9 +243,11 @@ fn main() -> Result<(), anyhow::Error> {
                         [split[0].trim(), split[1].trim()]
                     }
                 })
+                .filter(|split| (split[0].len() + split[1].len()) / 2 <= 150 * 5)
                 .collect();
             train_pairs.shuffle(&mut rand::thread_rng());
             let len = train_pairs.len();
+            println!("{} pairs loaded", len);
             let test_pairs = train_pairs.split_off(len - ((len as f32 * 0.0416) as usize).max(2500));
             println!("Data is in memory.");
             let loss = |t: Tensor, target: Tensor, label_smoothing: f64| {
