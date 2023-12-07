@@ -215,7 +215,7 @@ fn main() -> Result<(), anyhow::Error> {
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/train");
             let mut test_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
-            const BATCH_SIZE: usize = 128;
+            const BATCH_SIZE: usize = 64;
             let src_tokenizer =
                 token::train_tokenizer(&args[2], "src_tokenizer.json", args[4].parse()?)
                     .expect("failed to train & save tokenizer");
