@@ -226,10 +226,10 @@ fn main() -> Result<(), anyhow::Error> {
             let mut net = TrainableCModule::load("init.pt", vs.root())?;
             net.set_train();
             let mut opt = nn::Adam::default()
-                .beta1(0.9)
-                .beta2(0.98)
-                .eps(1e-9)
-                .build(&vs, 0.0)?;
+                // .beta1(0.9)
+                // .beta2(0.98)
+                // .eps(1e-9)
+                .build(&vs, 0.0005)?;
             let file = read_to_string(&args[5])?;
             let flip = args[6] == "true";
             let hours: f32 = args[7].parse()?;
@@ -246,7 +246,7 @@ fn main() -> Result<(), anyhow::Error> {
                 .collect();
             train_pairs.shuffle(&mut rand::thread_rng());
             let len = train_pairs.len();
-            let test_pairs = train_pairs.split_off(len - 2500);
+            let test_pairs = train_pairs.split_off(len - ((len as f32 * 0.0416) as usize).max(2500));
             println!("Data is in memory.");
             let loss = |t: Tensor, target: Tensor, label_smoothing: f64| {
                 t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, label_smoothing)
@@ -262,8 +262,7 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                     steps += 1;
                     epoch_steps += 1;
-                    opt.set_lr(get_learning_rate(steps, 128, 1000));
-                    //opt.set_lr(get_learning_rate(steps, 512, 4000));
+                    opt.set_lr(get_learning_rate(steps, 256, 8000));
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
@@ -306,6 +305,7 @@ fn main() -> Result<(), anyhow::Error> {
                         _ => bail!("Invalid structure from masker"),
                     };
                     let src_padding_mask = src_padding_mask.to_device(device);
+                    dbg!(tgt_input.size(), tgt_mask.size());
                     let logits = net.method_ts(
                         "forward",
                         &[

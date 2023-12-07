@@ -129,14 +129,14 @@ class Masker(nn.Module):
 
 torch.manual_seed(0)
 
-SRC_VOCAB_SIZE = 5000
-TGT_VOCAB_SIZE = 5000
-EMB_SIZE = 128
+SRC_VOCAB_SIZE = 25000
+TGT_VOCAB_SIZE = 25000
+EMB_SIZE = 256
 NHEAD = 8
 FFN_HID_DIM = 512
 BATCH_SIZE = 128
-NUM_ENCODER_LAYERS = 2
-NUM_DECODER_LAYERS = 2
+NUM_ENCODER_LAYERS = 3
+NUM_DECODER_LAYERS = 3
 
 src = torch.ones((114, 128)).type(torch.LongTensor)
 tgt_input = torch.ones((65, 128)).type(torch.LongTensor)
@@ -148,7 +148,7 @@ traced = torch.jit.trace_module(Masker(), {
 })
 torch.jit.save(traced, "mask.pt")
 
-transformer = Seq2SeqTransformer(NUM_ENCODER_LAYERS, NUM_DECODER_LAYERS, EMB_SIZE, NHEAD, SRC_VOCAB_SIZE, TGT_VOCAB_SIZE, FFN_HID_DIM, 0.3)
+transformer = Seq2SeqTransformer(NUM_ENCODER_LAYERS, NUM_DECODER_LAYERS, EMB_SIZE, NHEAD, SRC_VOCAB_SIZE, TGT_VOCAB_SIZE, FFN_HID_DIM, 0.1)
 def initialize_weights(m):
     if hasattr(m, 'weight') and m.weight.dim() > 1:
         nn.init.xavier_uniform_(m.weight.data)
