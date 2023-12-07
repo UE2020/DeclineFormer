@@ -264,7 +264,7 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                     steps += 1;
                     epoch_steps += 1;
-                    opt.set_lr(get_learning_rate(steps, 256, 8000));
+                    //opt.set_lr(get_learning_rate(steps, 256, 8000));
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
