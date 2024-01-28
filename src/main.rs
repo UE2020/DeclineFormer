@@ -237,13 +237,17 @@ fn main() -> Result<(), anyhow::Error> {
                 .lines()
                 .map(|l| {
                     let split: Vec<_> = l.split('\t').collect();
+                    split
+                })
+                .filter(|split| split.len() == 2)
+                .map(|split| {
                     if flip {
                         [split[1].trim(), split[0].trim()]
                     } else {
                         [split[0].trim(), split[1].trim()]
                     }
                 })
-                .filter(|split| (split[0].len() + split[1].len()) / 2 <= 150 * 5)
+                .filter(|split| ((split[0].len() + split[1].len()) / 2) <= 150)
                 .collect();
             train_pairs.shuffle(&mut rand::thread_rng());
             let len = train_pairs.len();

@@ -9,6 +9,6 @@ edition = "2021"
 anyhow = "1.0.75"
 ordered-float = "4.1.1"
 rand = "0.8.5"
-tch = { version = "0.13.0", features=["download-libtorch"] }
+tch = { version = "0.14.0", features = ["download-libtorch"] }
 tensorboard-rs = "0.5.9"
 tokenizers = "0.15.0"

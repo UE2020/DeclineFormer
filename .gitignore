@@ -4,3 +4,4 @@
 /logdir
 /model*
 *.txt
+*.gguf
