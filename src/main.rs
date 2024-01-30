@@ -7,8 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tch::{
+    kind::Element,
     nn::{self, OptimizerConfig, VarStore},
-    CModule, Device, IValue, IndexOp, Kind, Reduction, Tensor, TrainableCModule, kind::Element,
+    CModule, Device, IValue, IndexOp, Kind, Reduction, Tensor, TrainableCModule,
 };
 use tensorboard_rs as tensorboard;
 use tokenizers::{Decoder, Model, Normalizer, PostProcessor, PreTokenizer, TokenizerImpl};
@@ -36,8 +37,13 @@ fn tensor_transform(tokens: &[i64]) -> Tensor {
     )
 }
 
+pub enum DecodeInput<'a> {
+    Str(&'a str),
+    Tokens(&'a [i64]),
+}
+
 pub fn greedy_decode<M, N, PT, PP, D>(
-    input: &str,
+    input: DecodeInput,
     net: &TrainableCModule,
     masker: &CModule,
     src_tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
@@ -51,15 +57,16 @@ where
     PP: PostProcessor,
     D: Decoder,
 {
-    let src = tensor_transform(
-        &src_tokenizer
-            .encode(input, true)
+    let src = tensor_transform(&match input {
+        DecodeInput::Str(s) => src_tokenizer
+            .encode(s, true)
             .unwrap()
             .get_ids()
             .into_iter()
             .map(|id| *id as i64)
             .collect::<Vec<_>>(),
-    )
+        DecodeInput::Tokens(tokens) => tokens.to_vec(),
+    })
     .view((-1, 1))
     .to_device(device);
     let num_tokens = src.size()[0];
@@ -138,7 +145,10 @@ where
             .to_device(device);
         dbg!(tgt_mask.size());
         let out = net
-            .method_ts("decode", &[ys.shallow_clone(), memory.shallow_clone(), tgt_mask])?
+            .method_ts(
+                "decode",
+                &[ys.shallow_clone(), memory.shallow_clone(), tgt_mask],
+            )?
             .transpose(0, 1);
         let prob = net.method_ts("out_linear", &[out.i((.., -1))])?;
         let log_probs = prob.log_softmax(1, None);
@@ -151,13 +161,17 @@ where
         let topk = topk.topk(BEAM_SIZE as _, topk_dims as i64 - 1, true, true);
         scores = topk.0;
         let indices = topk.1;
-        let beam_indices = indices.divide_scalar_mode(tgt_tokenizer.get_vocab_size(true) as f64, "floor");
+        let beam_indices =
+            indices.divide_scalar_mode(tgt_tokenizer.get_vocab_size(true) as f64, "floor");
         let token_indices = indices.remainder(tgt_tokenizer.get_vocab_size(true) as f64);
         //let beam_indices = flat_tensor_array::<f32>(&beam_indices)?;
         //let token_indices = flat_tensor_array::<f32>(&token_indices)?;
         //let cpu_ys = flat_tensor_array::<i64>(&ys)?;
         let mut next_decoder_input = vec![];
-        for (beam_index, mut token_index) in beam_indices.iter::<f64>()?.zip(token_indices.iter::<f64>()?) {
+        for (beam_index, mut token_index) in beam_indices
+            .iter::<f64>()?
+            .zip(token_indices.iter::<f64>()?)
+        {
             let prev_decoder_input = ys.i(f64::try_from(beam_index)? as i64);
             if i64::try_from(prev_decoder_input.shallow_clone())? == EOS_IDX {
                 token_index = EOS_IDX as f64;
@@ -179,7 +193,10 @@ where
             dbg!(memory.size());
         }
     }
-    let decoder_output = memory.iter::<f64>()?.zip(scores.iter::<f64>()?).max_by_key(|x| OrderedFloat(x.1));
+    let decoder_output = memory
+        .iter::<f64>()?
+        .zip(scores.iter::<f64>()?)
+        .max_by_key(|x| OrderedFloat(x.1));
     dbg!(decoder_output);
     //let decoder_output = memory.i(index as i64);
 
@@ -196,7 +213,8 @@ pub fn flat_tensor_array<T: Element>(tensor: &Tensor) -> Result<Vec<T>, anyhow::
 }
 
 fn get_learning_rate(step: usize, embed_dim: usize, warmup_steps: usize) -> f64 {
-    return (embed_dim as f64).powf(-0.5) * ((step as f64).powf(-0.5)).min(step as f64 * (warmup_steps as f64).powf(-1.5))
+    return (embed_dim as f64).powf(-0.5)
+        * ((step as f64).powf(-0.5)).min(step as f64 * (warmup_steps as f64).powf(-1.5));
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -211,11 +229,10 @@ fn main() -> Result<(), anyhow::Error> {
         }
         "train" => {
             remove_dir_all("./logdir").ok();
+            const TGT_TOKENS: usize = 500;
             let mut train_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/train");
-            let mut test_writer =
-                tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
-            const BATCH_SIZE: usize = 128;
+            let mut test_writer = tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
             let src_tokenizer =
                 token::train_tokenizer(&args[2], "src_tokenizer.json", args[4].parse()?)
                     .expect("failed to train & save tokenizer");
@@ -233,7 +250,7 @@ fn main() -> Result<(), anyhow::Error> {
             let file = read_to_string(&args[5])?;
             let flip = args[6] == "true";
             let hours: f32 = args[7].parse()?;
-            let mut train_pairs: Vec<[&str; 2]> = file
+            let mut train_pairs: Vec<[Vec<i64>; 2]> = file
                 .lines()
                 .map(|l| {
                     let split: Vec<_> = l.split('\t').collect();
@@ -247,24 +264,59 @@ fn main() -> Result<(), anyhow::Error> {
                         [split[0].trim(), split[1].trim()]
                     }
                 })
-                .filter(|split| ((split[0].len() + split[1].len()) / 2) <= 150)
+                //.filter(|split| ((split[0].len() + split[1].len()) / 2) <= 150)
+                .map(|split| {
+                    [
+                        src_tokenizer
+                            .encode(split[0], true)
+                            .unwrap()
+                            .get_ids()
+                            .into_iter()
+                            .map(|id| *id as i64)
+                            .collect::<Vec<_>>(),
+                        tgt_tokenizer
+                            .encode(split[1], true)
+                            .unwrap()
+                            .get_ids()
+                            .into_iter()
+                            .map(|id| *id as i64)
+                            .collect::<Vec<_>>(),
+                    ]
+                })
                 .collect();
             train_pairs.shuffle(&mut rand::thread_rng());
             let len = train_pairs.len();
             println!("{} pairs loaded", len);
-            let test_pairs = train_pairs.split_off(len - ((len as f32 * 0.0416) as usize).max(2500));
+            let test_pairs =
+                train_pairs.split_off(len - ((len as f32 * 0.0416) as usize).max(2500));
             println!("Data is in memory.");
             let loss = |t: Tensor, target: Tensor, label_smoothing: f64| {
-                t.cross_entropy_loss::<Tensor>(&target, None, Reduction::Mean, PAD_IDX, label_smoothing)
+                t.cross_entropy_loss::<Tensor>(
+                    &target,
+                    None,
+                    Reduction::Mean,
+                    PAD_IDX,
+                    label_smoothing,
+                )
             };
             let mut steps = 0;
             let now = Instant::now();
             'outer: for epoch in 1.. {
                 let mut total_loss = 0.0;
                 let mut epoch_steps = 0;
-                for batch in train_pairs.chunks(BATCH_SIZE) {
-                    if batch.len() < BATCH_SIZE {
-                        continue;
+                let mut train_pairs_iter = train_pairs.iter();
+                'batch_loop: loop {
+                    let mut batch = vec![];
+                    let mut num_tokens = 0;
+                    while num_tokens < TGT_TOKENS {
+                        let next = train_pairs_iter.next();
+                        match next {
+                            Some(next) => {
+                                num_tokens += next[1].len();
+                                batch.push(next);
+                            }
+                            None => break 'batch_loop
+                        }
                     }
                     steps += 1;
                     epoch_steps += 1;
@@ -272,24 +324,8 @@ fn main() -> Result<(), anyhow::Error> {
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
-                        src_batch.push(tensor_transform(
-                            &src_tokenizer
-                                .encode(*src_sample, true)
-                                .unwrap()
-                                .get_ids()
-                                .into_iter()
-                                .map(|id| *id as i64)
-                                .collect::<Vec<_>>(),
-                        ));
-                        tgt_batch.push(tensor_transform(
-                            &tgt_tokenizer
-                                .encode(*tgt_sample, true)
-                                .unwrap()
-                                .get_ids()
-                                .into_iter()
-                                .map(|id| *id as i64)
-                                .collect::<Vec<_>>(),
-                        ));
+                        src_batch.push(tensor_transform(&src_sample));
+                        tgt_batch.push(tensor_transform(&tgt_sample));
                     }
                     let src = Tensor::pad_sequence::<Tensor>(&src_batch, false, PAD_IDX as f64);
                     let tgt = Tensor::pad_sequence::<Tensor>(&tgt_batch, false, PAD_IDX as f64);
@@ -329,7 +365,7 @@ fn main() -> Result<(), anyhow::Error> {
                     let loss = loss(
                         logits.reshape(&[-1i64, logits_shape[logits_shape.len() - 1]]),
                         tgt_out.reshape(&[-1]),
-                        0.1
+                        0.1,
                     );
                     loss.backward();
                     opt.step();
@@ -341,12 +377,28 @@ fn main() -> Result<(), anyhow::Error> {
                         let pair = train_pairs
                             .choose(&mut rand::thread_rng())
                             .expect("failed to sample dataset");
-                        println!("input:        {}", pair[0]);
-                        println!("ground truth: {}", pair[1]);
+                        println!(
+                            "input:        {}",
+                            src_tokenizer
+                                .decode(
+                                    &pair[0].iter().map(|s| *s as u32).collect::<Vec<_>>(),
+                                    false
+                                )
+                                .unwrap()
+                        );
+                        println!(
+                            "ground truth: {}",
+                            tgt_tokenizer
+                                .decode(
+                                    &pair[1].iter().map(|s| *s as u32).collect::<Vec<_>>(),
+                                    false
+                                )
+                                .unwrap()
+                        );
                         println!(
                             "sample:       {}",
                             greedy_decode(
-                                pair[0],
+                                DecodeInput::Tokens(&pair[0]),
                                 &net,
                                 &masker,
                                 &src_tokenizer,
@@ -362,32 +414,26 @@ fn main() -> Result<(), anyhow::Error> {
                 }
                 let mut test_loss_total = 0.0;
                 let mut test_steps = 0;
-                for batch in test_pairs.chunks(BATCH_SIZE) {
-                    if batch.len() < BATCH_SIZE {
-                        continue;
+                let mut test_pairs_iter = test_pairs.iter();
+                'batch_loop: loop {
+                    let mut batch = vec![];
+                    let mut num_tokens = 0;
+                    while num_tokens < TGT_TOKENS {
+                        let next = test_pairs_iter.next();
+                        match next {
+                            Some(next) => {
+                                num_tokens += next[1].len();
+                                batch.push(next);
+                            }
+                            None => break 'batch_loop
+                        }
                     }
                     test_steps += 1;
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
-                        src_batch.push(tensor_transform(
-                            &src_tokenizer
-                                .encode(*src_sample, true)
-                                .unwrap()
-                                .get_ids()
-                                .into_iter()
-                                .map(|id| *id as i64)
-                                .collect::<Vec<_>>(),
-                        ));
-                        tgt_batch.push(tensor_transform(
-                            &tgt_tokenizer
-                                .encode(*tgt_sample, true)
-                                .unwrap()
-                                .get_ids()
-                                .into_iter()
-                                .map(|id| *id as i64)
-                                .collect::<Vec<_>>(),
-                        ));
+                        src_batch.push(tensor_transform(&src_sample));
+                        tgt_batch.push(tensor_transform(&tgt_sample));
                     }
                     let src = Tensor::pad_sequence::<Tensor>(&src_batch, false, PAD_IDX as f64);
                     let tgt = Tensor::pad_sequence::<Tensor>(&tgt_batch, false, PAD_IDX as f64);
@@ -426,13 +472,15 @@ fn main() -> Result<(), anyhow::Error> {
                     let loss = loss(
                         logits.reshape(&[-1i64, logits_shape[logits_shape.len() - 1]]),
                         tgt_out.reshape(&[-1]),
-                        0.0
+                        0.0,
                     );
                     let loss = f32::try_from(loss)?;
                     test_loss_total += loss;
                 }
                 test_writer.add_scalar("Loss", test_loss_total / test_steps as f32, steps as _);
-                println!("---------------------------------------------------------------------------");
+                println!(
+                    "---------------------------------------------------------------------------"
+                );
                 println!("Epoch {} complete\ntrain loss={:.2}\ttrain PPL={:.4}\ntest loss={:.2}\ttest PPL={:.4}", epoch, total_loss / epoch_steps as f32, (total_loss / epoch_steps as f32).exp(), test_loss_total / test_steps as f32, (test_loss_total / test_steps as f32).exp());
                 net.save(&format!("model_{}.pt", epoch))?;
                 train_pairs.shuffle(&mut rand::thread_rng());
@@ -448,7 +496,7 @@ fn main() -> Result<(), anyhow::Error> {
             println!(
                 "output: {}",
                 greedy_decode(
-                    &args[3],
+                    DecodeInput::Str(&args[3]),
                     &net,
                     &masker,
                     &src_tokenizer,
