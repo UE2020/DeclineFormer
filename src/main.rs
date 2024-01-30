@@ -229,7 +229,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
         "train" => {
             remove_dir_all("./logdir").ok();
-            const TGT_TOKENS: usize = 500;
+            const TGT_TOKENS: usize = 600;
             let mut train_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/train");
             let mut test_writer = tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
@@ -243,9 +243,9 @@ fn main() -> Result<(), anyhow::Error> {
             let mut net = TrainableCModule::load("init.pt", vs.root())?;
             net.set_train();
             let mut opt = nn::Adam::default()
-                // .beta1(0.9)
-                // .beta2(0.98)
-                // .eps(1e-9)
+                .beta1(0.9)
+                .beta2(0.98)
+                .eps(1e-9)
                 .build(&vs, 0.0005)?;
             let file = read_to_string(&args[5])?;
             let flip = args[6] == "true";
@@ -320,7 +320,7 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                     steps += 1;
                     epoch_steps += 1;
-                    //opt.set_lr(get_learning_rate(steps, 256, 8000));
+                    opt.set_lr(get_learning_rate(steps, 256, 4000));
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
