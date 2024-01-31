@@ -229,7 +229,6 @@ fn main() -> Result<(), anyhow::Error> {
         }
         "train" => {
             remove_dir_all("./logdir").ok();
-            const TGT_TOKENS: usize = 500;
             let mut train_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/train");
             let mut test_writer = tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
@@ -250,6 +249,7 @@ fn main() -> Result<(), anyhow::Error> {
             let file = read_to_string(&args[5])?;
             let flip = args[6] == "true";
             let hours: f32 = args[7].parse()?;
+            let tgt_tokens: usize = args[8].parse()?;
             let mut train_pairs: Vec<[Vec<i64>; 2]> = file
                 .lines()
                 .map(|l| {
@@ -301,7 +301,7 @@ fn main() -> Result<(), anyhow::Error> {
             };
             let mut steps = 0;
             let now = Instant::now();
-            let accum_iter = 25000 / TGT_TOKENS;
+            let accum_iter = 25000 / tgt_tokens;
             'outer: for epoch in 1.. {
                 opt.zero_grad();
                 let mut total_loss = 0.0;
@@ -311,7 +311,7 @@ fn main() -> Result<(), anyhow::Error> {
                 'batch_loop: loop {
                     let mut batch = vec![];
                     let mut num_tokens = 0;
-                    while num_tokens < TGT_TOKENS {
+                    while num_tokens < tgt_tokens {
                         let next = train_pairs_iter.next();
                         match next {
                             Some(next) => {
@@ -424,7 +424,7 @@ fn main() -> Result<(), anyhow::Error> {
                 'batch_loop: loop {
                     let mut batch = vec![];
                     let mut num_tokens = 0;
-                    while num_tokens < TGT_TOKENS {
+                    while num_tokens < tgt_tokens {
                         let next = test_pairs_iter.next();
                         match next {
                             Some(next) => {
