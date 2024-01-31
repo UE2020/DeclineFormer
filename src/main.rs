@@ -14,6 +14,11 @@ use tch::{
 use tensorboard_rs as tensorboard;
 use tokenizers::{Decoder, Model, Normalizer, PostProcessor, PreTokenizer, TokenizerImpl};
 
+const HELP: &str = "seq2seq trainer: https://github.com/UE2020/DeclineFormer
+    test: <model> <string>
+    train: <src-corpus> <tgt-corpus> <vocab-size> <pair-corpus> <should-swap> <hours> <tgt-tokens-per-batch>
+    test-tok: <tokenizer> <string>";
+
 pub fn ivalue_to_tensor(ivalue: &IValue) -> Result<Tensor, anyhow::Error> {
     match ivalue {
         IValue::Tensor(t) => Ok(t.shallow_clone()),
@@ -511,7 +516,8 @@ fn main() -> Result<(), anyhow::Error> {
                 )?
             );
         }
-        _ => bail!("Invalid arguments"),
+        "help" => println!("{}", HELP),
+        _ => bail!("Invalid arguments\n{}", HELP),
     }
     Ok(())
 }
