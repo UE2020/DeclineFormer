@@ -269,7 +269,7 @@ fn main() -> Result<(), anyhow::Error> {
                         [split[0].trim(), split[1].trim()]
                     }
                 })
-                //.filter(|split| ((split[0].len() + split[1].len()) / 2) <= 150)
+                .filter(|split| split[0].len() < (140 * 3))
                 .map(|split| {
                     [
                         src_tokenizer
@@ -323,7 +323,7 @@ fn main() -> Result<(), anyhow::Error> {
                                 num_tokens += next[1].len();
                                 batch.push(next);
                             }
-                            None => break 'batch_loop
+                            None => break 'batch_loop,
                         }
                     }
                     steps += 1;
@@ -436,7 +436,7 @@ fn main() -> Result<(), anyhow::Error> {
                                 num_tokens += next[1].len();
                                 batch.push(next);
                             }
-                            None => break 'batch_loop
+                            None => break 'batch_loop,
                         }
                     }
                     test_steps += 1;
