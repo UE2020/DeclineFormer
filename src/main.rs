@@ -229,7 +229,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
         "train" => {
             remove_dir_all("./logdir").ok();
-            const TGT_TOKENS: usize = 600;
+            const TGT_TOKENS: usize = 500;
             let mut train_writer =
                 tensorboard::summary_writer::SummaryWriter::new("./logdir/train");
             let mut test_writer = tensorboard::summary_writer::SummaryWriter::new("./logdir/test");
@@ -301,9 +301,12 @@ fn main() -> Result<(), anyhow::Error> {
             };
             let mut steps = 0;
             let now = Instant::now();
+            let accum_iter = 25000 / TGT_TOKENS;
             'outer: for epoch in 1.. {
+                opt.zero_grad();
                 let mut total_loss = 0.0;
                 let mut epoch_steps = 0;
+                let mut epoch_updates = 0;
                 let mut train_pairs_iter = train_pairs.iter();
                 'batch_loop: loop {
                     let mut batch = vec![];
@@ -320,7 +323,6 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                     steps += 1;
                     epoch_steps += 1;
-                    opt.set_lr(get_learning_rate(steps, 256, 4000));
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
                     for [src_sample, tgt_sample] in batch {
@@ -359,7 +361,6 @@ fn main() -> Result<(), anyhow::Error> {
                             src_padding_mask,
                         ],
                     )?;
-                    opt.zero_grad();
                     let tgt_out = &tgt.narrow(0, 1, tgt.size()[0] - 1).to_device(device);
                     let logits_shape = logits.size();
                     let loss = loss(
@@ -367,8 +368,13 @@ fn main() -> Result<(), anyhow::Error> {
                         tgt_out.reshape(&[-1]),
                         0.1,
                     );
-                    loss.backward();
-                    opt.step();
+                    (&loss / accum_iter as f64).backward();
+                    if epoch_steps % accum_iter == 0 {
+                        epoch_updates += 1;
+                        opt.set_lr(get_learning_rate(epoch_updates, 256, 4000));
+                        opt.step();
+                        opt.zero_grad();
+                    }
                     let loss = f32::try_from(loss)?;
                     total_loss += loss;
                     train_writer.add_scalar("Loss", loss, steps as _);
