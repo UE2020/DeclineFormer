@@ -310,7 +310,7 @@ fn main() -> Result<(), anyhow::Error> {
             };
             let mut steps = 0;
             let now = Instant::now();
-            let accum_iter = 5000 / tgt_tokens;
+            let accum_iter = 10000 / tgt_tokens;
             'outer: for epoch in 1.. {
                 opt.zero_grad();
                 let mut total_loss = 0.0;
