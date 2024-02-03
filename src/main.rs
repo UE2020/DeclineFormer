@@ -1,3 +1,4 @@
+pub mod batcher;
 pub mod token;
 use anyhow::bail;
 use ordered_float::OrderedFloat;
@@ -12,6 +13,7 @@ use tch::{
     CModule, Device, IValue, IndexOp, Kind, Reduction, Tensor, TrainableCModule,
 };
 use tensorboard_rs as tensorboard;
+use tinyvec::TinyVec;
 use tokenizers::{Decoder, Model, Normalizer, PostProcessor, PreTokenizer, TokenizerImpl};
 
 const HELP: &str = "seq2seq trainer: https://github.com/UE2020/DeclineFormer
@@ -255,7 +257,7 @@ fn main() -> Result<(), anyhow::Error> {
             let flip = args[6] == "true";
             let hours: f32 = args[7].parse()?;
             let tgt_tokens: usize = args[8].parse()?;
-            let mut train_pairs: Vec<[Vec<i64>; 2]> = file
+            let mut train_pairs: Vec<[TinyVec<[i64; 128]>; 2]> = file
                 .lines()
                 .map(|l| {
                     let split: Vec<_> = l.split('\t').collect();
@@ -278,22 +280,24 @@ fn main() -> Result<(), anyhow::Error> {
                             .get_ids()
                             .into_iter()
                             .map(|id| *id as i64)
-                            .collect::<Vec<_>>(),
+                            .collect::<TinyVec<_>>(),
                         tgt_tokenizer
                             .encode(split[1], true)
                             .unwrap()
                             .get_ids()
                             .into_iter()
                             .map(|id| *id as i64)
-                            .collect::<Vec<_>>(),
+                            .collect::<TinyVec<_>>(),
                     ]
                 })
                 .collect();
-            train_pairs.shuffle(&mut rand::thread_rng());
             let len = train_pairs.len();
             println!("{} pairs loaded", len);
-            let test_pairs =
-                train_pairs.split_off(len - ((len as f32 * 0.0416) as usize).max(2500));
+            // ensure that the test pairs are randomly sampled
+            train_pairs.shuffle(&mut rand::thread_rng());
+            let mut test_pairs = train_pairs.split_off(len - 2500);
+            train_pairs.sort_by_key(|[_, tgt]| tgt.len());
+            test_pairs.sort_by_key(|[_, tgt]| tgt.len());
             println!("Data is in memory.");
             let loss = |t: Tensor, target: Tensor, label_smoothing: f64| {
                 t.cross_entropy_loss::<Tensor>(
@@ -306,26 +310,14 @@ fn main() -> Result<(), anyhow::Error> {
             };
             let mut steps = 0;
             let now = Instant::now();
-            let accum_iter = 25000 / tgt_tokens;
+            let accum_iter = 5000 / tgt_tokens;
             'outer: for epoch in 1.. {
                 opt.zero_grad();
                 let mut total_loss = 0.0;
                 let mut epoch_steps = 0;
                 let mut epoch_updates = 0;
-                let mut train_pairs_iter = train_pairs.iter();
-                'batch_loop: loop {
-                    let mut batch = vec![];
-                    let mut num_tokens = 0;
-                    while num_tokens < tgt_tokens {
-                        let next = train_pairs_iter.next();
-                        match next {
-                            Some(next) => {
-                                num_tokens += next[1].len();
-                                batch.push(next);
-                            }
-                            None => break 'batch_loop,
-                        }
-                    }
+                let batches = batcher::batch(&train_pairs, tgt_tokens);
+                for batch in batches {
                     steps += 1;
                     epoch_steps += 1;
                     let mut src_batch = vec![];
@@ -423,22 +415,11 @@ fn main() -> Result<(), anyhow::Error> {
                         break 'outer;
                     }
                 }
+
                 let mut test_loss_total = 0.0;
                 let mut test_steps = 0;
-                let mut test_pairs_iter = test_pairs.iter();
-                'batch_loop: loop {
-                    let mut batch = vec![];
-                    let mut num_tokens = 0;
-                    while num_tokens < tgt_tokens {
-                        let next = test_pairs_iter.next();
-                        match next {
-                            Some(next) => {
-                                num_tokens += next[1].len();
-                                batch.push(next);
-                            }
-                            None => break 'batch_loop,
-                        }
-                    }
+                let batches = batcher::batch(&test_pairs, tgt_tokens);
+                for batch in batches {
                     test_steps += 1;
                     let mut src_batch = vec![];
                     let mut tgt_batch = vec![];
@@ -494,7 +475,6 @@ fn main() -> Result<(), anyhow::Error> {
                 );
                 println!("Epoch {} complete\ntrain loss={:.2}\ttrain PPL={:.4}\ntest loss={:.2}\ttest PPL={:.4}", epoch, total_loss / epoch_steps as f32, (total_loss / epoch_steps as f32).exp(), test_loss_total / test_steps as f32, (test_loss_total / test_steps as f32).exp());
                 net.save(&format!("model_{}.pt", epoch))?;
-                train_pairs.shuffle(&mut rand::thread_rng());
             }
             net.save("final.pt")?;
         }

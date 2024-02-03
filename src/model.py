@@ -131,12 +131,12 @@ torch.manual_seed(0)
 
 SRC_VOCAB_SIZE = 25000
 TGT_VOCAB_SIZE = 25000
-EMB_SIZE = 512
+EMB_SIZE = 256
 NHEAD = 8
-FFN_HID_DIM = 2048
+FFN_HID_DIM = 256
 BATCH_SIZE = 128
-NUM_ENCODER_LAYERS = 6
-NUM_DECODER_LAYERS = 6
+NUM_ENCODER_LAYERS = 3
+NUM_DECODER_LAYERS = 3
 
 src = torch.ones((114, 128)).type(torch.LongTensor)
 tgt_input = torch.ones((65, 128)).type(torch.LongTensor)
