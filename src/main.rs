@@ -1,6 +1,7 @@
 pub mod batcher;
 pub mod token;
 use anyhow::bail;
+use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use rand::seq::SliceRandom;
 use std::{
@@ -107,13 +108,16 @@ where
     Ok(tgt_tokenizer.decode(&tokens, false).unwrap())
 }
 
+
 pub fn beam_search<M, N, PT, PP, D>(
-    input: &str,
+    input: DecodeInput,
     net: &TrainableCModule,
     masker: &CModule,
     src_tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
     tgt_tokenizer: &TokenizerImpl<M, N, PT, PP, D>,
     device: Device,
+    beam_size: usize,
+    length_penalty: f64,
 ) -> Result<String, anyhow::Error>
 where
     M: Model,
@@ -122,93 +126,77 @@ where
     PP: PostProcessor,
     D: Decoder,
 {
-    const BEAM_SIZE: usize = 3;
-    const ALPHA: f64 = 0.6;
-    fn sequence_length_penalty(length: usize, alpha: f64) -> f64 {
-        ((5.0 + length as f64) / (5.0 + 1.0)).powf(alpha)
-    }
-    let src = tensor_transform(
-        &src_tokenizer
-            .encode(input, true)
+    let src = tensor_transform(&match input {
+        DecodeInput::Str(s) => src_tokenizer
+            .encode(s, true)
             .unwrap()
             .get_ids()
             .into_iter()
             .map(|id| *id as i64)
             .collect::<Vec<_>>(),
-    )
+        DecodeInput::Tokens(tokens) => tokens.to_vec(),
+    })
     .view((-1, 1))
     .to_device(device);
     let num_tokens = src.size()[0];
     let src_mask = Tensor::zeros(&[num_tokens, num_tokens], (Kind::Bool, device));
     let max_len = num_tokens * 2;
     let start_symbol = BOS_IDX;
-    let mut memory = net.method_ts("encode", &[src, src_mask])?.to_device(device);
-    let mut ys = Tensor::full(&[1, 1], start_symbol, (Kind::Int64, device));
-    let mut scores = Tensor::from_slice(&[0.]);
-    for i in 0..(max_len - 1) {
-        let tgt_mask = masker
-            .method_ts("generate_square_subsequent_mask", &[ys.shallow_clone()])?
-            .to_kind(Kind::Bool)
-            .to_device(device);
-        dbg!(tgt_mask.size());
-        let out = net
-            .method_ts(
-                "decode",
-                &[ys.shallow_clone(), memory.shallow_clone(), tgt_mask],
-            )?
-            .transpose(0, 1);
-        let prob = net.method_ts("out_linear", &[out.i((.., -1))])?;
-        let log_probs = prob.log_softmax(1, None);
-        let mut log_probs = log_probs / sequence_length_penalty(i as usize + 1, ALPHA);
-        let eos_mask = ys.narrow(1, -1, 1).eq(EOS_IDX);
-        let _ = log_probs.masked_fill_(&eos_mask, 0);
-        scores = scores.unsqueeze(1) + log_probs;
-        let topk = scores.reshape(-1);
-        let topk_dims = topk.size().len();
-        let topk = topk.topk(BEAM_SIZE as _, topk_dims as i64 - 1, true, true);
-        scores = topk.0;
-        let indices = topk.1;
-        let beam_indices =
-            indices.divide_scalar_mode(tgt_tokenizer.get_vocab_size(true) as f64, "floor");
-        let token_indices = indices.remainder(tgt_tokenizer.get_vocab_size(true) as f64);
-        //let beam_indices = flat_tensor_array::<f32>(&beam_indices)?;
-        //let token_indices = flat_tensor_array::<f32>(&token_indices)?;
-        //let cpu_ys = flat_tensor_array::<i64>(&ys)?;
-        let mut next_decoder_input = vec![];
-        for (beam_index, mut token_index) in beam_indices
-            .iter::<f64>()?
-            .zip(token_indices.iter::<f64>()?)
-        {
-            let prev_decoder_input = ys.i(f64::try_from(beam_index)? as i64);
-            if i64::try_from(prev_decoder_input.shallow_clone())? == EOS_IDX {
-                token_index = EOS_IDX as f64;
+    let memory = net.method_ts("encode", &[src, src_mask])?;
+    let mut sequences = vec![vec![(start_symbol as i64, 0.0)]];
+    for _ in 0..(max_len - 1) {
+        let mut all_candidates = vec![];
+        for sequence in &sequences {
+            if sequence.last().unwrap().0 == (EOS_IDX as i64) {
+                all_candidates.push(sequence.clone());
+                continue;
             }
-            let token_index = Tensor::from_slice(&[token_index as i64]);
-            next_decoder_input.push(Tensor::cat(&[prev_decoder_input, token_index], 0))
+            let ys = Tensor::from_slice(&sequence.iter().map(|(token, _)| *token).collect::<Vec<_>>()).view((-1, 1)).to_device(device);
+            let memory = memory.to_device(device);
+            let tgt_mask = masker
+                .method_ts("generate_square_subsequent_mask", &[ys.shallow_clone()])?
+                .to_kind(Kind::Bool)
+                .to_device(device);
+            let out = net
+                .method_ts("decode", &[ys.shallow_clone(), memory, tgt_mask])?
+                .transpose(0, 1);
+            let prob = net.method_ts("out_linear", &[out.i((.., -1))])?.log_softmax(-1, None);
+            let (log_probs, next_words) = prob.topk(beam_size as i64, 1, true, true);
+            for i in 0..beam_size {
+                let token = i64::try_from(next_words.squeeze().i(i as i64))?;
+                let log_prob = f64::try_from(log_probs.squeeze().i(i as i64))?;
+                let mut new_sequence = sequence.clone();
+                new_sequence.push((token as i64, log_prob));
+                all_candidates.push(new_sequence);
+            }
         }
-        dbg!(ys.size());
-        ys = Tensor::vstack(&next_decoder_input);
-        dbg!(ys.size());
-        let mask = ys.narrow(1, -1, 1).eq(EOS_IDX);
-        if i64::try_from(mask.sum(None))? == BEAM_SIZE as i64 {
-            break;
-        }
-        if i == 0 {
-            let mem_size = memory.size();
-            dbg!(memory.size());
-            memory = memory.expand(&[mem_size[0], BEAM_SIZE as i64, mem_size[2]], false);
-            dbg!(memory.size());
-        }
+        sequences = all_candidates
+            .into_iter()
+            .map(|sequence| {
+                let len = sequence.len() as f64;
+                let score = sequence.iter().map(|(_, log_prob)| log_prob).sum::<f64>();
+                let norm = ((5.0 + len) / (5.0 + 1.0)).powf(length_penalty);
+                let normalized_score = score / norm;
+                (sequence.clone(), normalized_score)
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .rev()
+            .take(beam_size)
+            .map(|(sequence, _)| sequence)
+            .collect();
     }
-    let decoder_output = memory
-        .iter::<f64>()?
-        .zip(scores.iter::<f64>()?)
-        .max_by_key(|x| OrderedFloat(x.1));
-    dbg!(decoder_output);
-    //let decoder_output = memory.i(index as i64);
-
-    Ok(tgt_tokenizer.decode(&[], false).unwrap())
+    for sequence in sequences.iter() {
+        let norm = ((5.0 + sequence.len() as f64) / (5.0 + 1.0)).powf(length_penalty);
+        let score: f64 = sequence.iter().map(|(_, prob)| *prob).sum::<f64>() / norm;
+        let s = sequence.iter().map(|(token, _)| *token as u32).collect::<Vec<_>>();
+        //println!("{}: {}", score, tgt_tokenizer.decode(&s, false).unwrap());
+    }
+    let s = sequences[0].iter().map(|(token, _)| *token as u32).collect::<Vec<_>>();
+    Ok(tgt_tokenizer.decode(&s, false).unwrap())
 }
+
 
 pub fn flat_tensor_array<T: Element>(tensor: &Tensor) -> Result<Vec<T>, anyhow::Error> {
     let num_elem = tensor.numel();
@@ -375,7 +363,7 @@ fn main() -> Result<(), anyhow::Error> {
                     let loss = f32::try_from(loss)?;
                     total_loss += loss;
                     train_writer.add_scalar("Loss", loss, steps as _);
-                    if steps % 500 == 0 {
+                    if steps % 1000 == 0 {
                         net.set_eval();
                         let pair = train_pairs
                             .choose(&mut rand::thread_rng())
@@ -484,17 +472,31 @@ fn main() -> Result<(), anyhow::Error> {
             net.set_eval();
             let src_tokenizer = token::load("src_tokenizer.json").unwrap();
             let tgt_tokenizer = token::load("tgt_tokenizer.json").unwrap();
-            println!(
-                "output: {}",
-                greedy_decode(
-                    DecodeInput::Str(&args[3]),
-                    &net,
-                    &masker,
-                    &src_tokenizer,
-                    &tgt_tokenizer,
-                    device
-                )?
-            );
+            tch::no_grad(|| {
+                println!(
+                    "output: {}\nbeam  : {}",
+                    greedy_decode(
+                        DecodeInput::Str(&args[3]),
+                        &net,
+                        &masker,
+                        &src_tokenizer,
+                        &tgt_tokenizer,
+                        device,
+                        //4
+                    ).unwrap(),
+                    beam_search(
+                        DecodeInput::Str(&args[3]),
+                        &net,
+                        &masker,
+                        &src_tokenizer,
+                        &tgt_tokenizer,
+                        device,
+                        4,
+                        0.6,
+                    ).unwrap()
+                );
+            });
+
         }
         "help" => println!("{}", HELP),
         _ => bail!("Invalid arguments\n{}", HELP),
