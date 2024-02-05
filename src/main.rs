@@ -259,7 +259,7 @@ fn main() -> Result<(), anyhow::Error> {
                         [split[0].trim(), split[1].trim()]
                     }
                 })
-                .filter(|split| split[0].len() < (140 * 3))
+                //.filter(|split| split[0].len() < (140 * 3))
                 .map(|split| {
                     [
                         src_tokenizer
