@@ -18,7 +18,7 @@ pub fn train_tokenizer(
             AddedToken::from(String::from("<PAD>"), true),
             AddedToken::from(String::from("<BOS>"), true),
             AddedToken::from(String::from("<EOS>"), true),
-            AddedToken::from(String::from("<S>"), true),
+            /*AddedToken::from(String::from("<S>"), true),
             AddedToken::from(String::from("<C:ABL>"), true),
             AddedToken::from(String::from("<C:ACC>"), true),
             AddedToken::from(String::from("<C:D>"), true),
@@ -64,7 +64,7 @@ pub fn train_tokenizer(
             AddedToken::from(String::from("<V:P>"), true),
             AddedToken::from(String::from("<PPL:1>"), true),
             AddedToken::from(String::from("<PPL:2>"), true),
-            AddedToken::from(String::from("<PPL:3>"), true),
+            AddedToken::from(String::from("<PPL:3>"), true),*/
             // AddedToken::from(String::from("<SEP>"), true),
             // AddedToken::from(String::from("<NOM>"), true),
             // AddedToken::from(String::from("<GEN>"), true),

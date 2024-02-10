@@ -126,6 +126,7 @@ where
     PP: PostProcessor,
     D: Decoder,
 {
+    println!();
     let src = tensor_transform(&match input {
         DecodeInput::Str(s) => src_tokenizer
             .encode(s, true)
@@ -186,6 +187,11 @@ where
             .take(beam_size)
             .map(|(sequence, _)| sequence)
             .collect();
+        //use std::io::Write;
+        let s = sequences[0].iter().map(|(token, _)| *token as u32).collect::<Vec<_>>();
+        print!("{esc}c", esc = 27 as char);
+        println!("{}", tgt_tokenizer.decode(&s, false).unwrap());
+        //std::io::stdout().flush().ok();
     }
     for sequence in sequences.iter() {
         let norm = ((5.0 + sequence.len() as f64) / (5.0 + 1.0)).powf(length_penalty);
@@ -194,9 +200,19 @@ where
         //println!("{}: {}", score, tgt_tokenizer.decode(&s, false).unwrap());
     }
     let s = sequences[0].iter().map(|(token, _)| *token as u32).collect::<Vec<_>>();
+    println!();
     Ok(tgt_tokenizer.decode(&s, false).unwrap())
 }
 
+fn up() -> String {
+    format!("{}[A", ESC)
+}
+
+fn erase() -> String {
+    format!("{}[2K", ESC)
+}
+
+const ESC: char = 27u8 as char;
 
 pub fn flat_tensor_array<T: Element>(tensor: &Tensor) -> Result<Vec<T>, anyhow::Error> {
     let num_elem = tensor.numel();

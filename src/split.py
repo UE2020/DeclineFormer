@@ -9,4 +9,4 @@ def split_corpus(input_file, latin_output_file, english_output_file):
             latin_f.write(split[0] + '\n')
             english_f.write(split[1].strip() + '\n')
 
-split_corpus('output5.txt', 'lt.txt', 'en.txt')
+split_corpus('../DeclEngine/data/lt-en.txt', 'lt.txt', 'en.txt')
